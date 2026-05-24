@@ -1,0 +1,217 @@
+4.5.1 SSL Projector Head
+In each experimen all clients share an identical SSL projector head that maps backbone features
+into a compact contrastive embedding space. The projector is intentionally lightweight while
+remaining sufficiently expressive for divergence-based quality evaluation.
+As shown in Fig. 4.10, the backbone produces a feature vector h ∈ R
+d via global average
+pooling, where d depends on the selected architecture This vector is fed into two branches: the
+projector for self-supervised learning and the classifier for supervised prediction. The projector
+computes:
+z = ℓ2-Normalize (W2 · ReLU (BN(W1h)))
+The projection head consists of two linear layers with Batch Normalisation and ReLU activa￾tion, producing a 128-dimensional unit-norm embedding z ∈ R
+128. Following the SimCLR-style
+design, Batch Normalisation stabilizes training across Non-IID clients, while ℓ2 normalisation
+enables consistent cosine-similarity comparisons.
+Training is performed using the NT-Xent contrastive loss, chosen for its simplicity and
+effectiveness in learning well-structured embedding spaces without requiring memory banks or
+complex sampling strategies.
+Figure 4.10: Architecture of the shared SSL projector head.
+4.5.2 Aggregation Score
+To address client heterogeneity in FL, we propose a multi-factor aggregation strategy instead
+of relying solely on dataset size as in FedAvg. In Non-IID settings, clients differ in data quality,
+representation learning capability, and predictive performance. Therefore, we combine three
+complementary factors into a unified aggregation score:
+si = wssl · Q˜
+i + wacc · ai + wsize · n˜i (4.1)
+30
+Chapter 4 Our Contribution
+where Q˜
+i represents the normalized SSL quality score, a˜i the normalized classification ac￾curacy, and n˜i the normalized dataset size. These factors jointly capture the quality and
+contribution of each client during federated training.
+After local training, we compute the mean squared divergence between client and global
+representations over a batch B of images x
+1. SSL Quality Score
+The main component of our aggregation strategy is the SSL divergence quality score, which
+measures how well each client learns feature representations aligned with the global model.
+Unlike accuracy-based metrics, this factor measures the internal quality of learned embeddings
+obtained through SSL.
+:
+δi =
+1
+|B|
+X
+x∈B
+∥zi(x) − zg(x)∥
+2
+(4.2)
+where zi = gϕi(fθi
+(x)) and zg = gϕg(fθg
+(x)) are the 128-dimensional embeddings produced
+by the SSL projector from the client and global model.
+A low divergence indicates stable and transferable representations, while high divergence
+may reflect either noisy updates or or highly specific local patterns. However, in Non-IID
+environments, divergence is not always harmful. A client containing rare but valuable local data
+may naturally produce representations different from the global model while still contributing
+useful information. To capture this behavior, we condition the SSL score on local accuracy ai
+:
+Qi =
+(
+−δi
+, if ai < τ
++δi
+, if ai ≥ τ
+(4.3)
+When a client achieves low accuracy, high divergence is treated as an indicator of poor learning
+quality and is penalized. Conversely, when accuracy is high, moderate divergence may indicate
+useful local specialization and is partially rewarded.
+We define this factor to capture representation quality beyond classification accuracy, as
+strong and transferable features improve global generalization in heterogeneous FL settings.
+Instead of a fixed threshold, we use a dynamic one based on the mean client accuracy per
+communication round:
+τ =
+1
+|C|
+|C|
+X
+i=1
+ai (4.4)
+This adaptive design adjusts automatically to training progress: it relaxes penalization
+when overall performance is low and becomes stricter as client accuracy improves, enabling
+more stable and balanced evaluation over time.
+To ensure a consistent scale across all aggregation factors, we apply max-absolute normal￾ization to the SSL quality score. This allows preserving both the sign (reward or penalty) and
+the relative magnitude of each client contribution.
+Q˜
+i =
+Qi
+maxj
+|Qj
+|
+(4.5)
+This transformation maps the SSL score into the range [−1, 1], ensuring a balanced rep-
+31
+Chapter 4 Our Contribution
+resentation of positive and negative contributions while maintaining comparability with other
+normalized factors such as dataset size and accuracy.
+2. Accuracy Score
+We include classification accuracy to directly measure the predictive ability of each local model.
+The local performance of client i is measured as:
+ai =
+Ni
+correct
+Ni
+total (4.6)
+where Ni
+correct is the number of correctly classified local samples and Ni
+total is the total
+number of evaluated samples.
+We choose this factor because the final objective of the FL system remains accurate classifi￾cation. Clients that achieve stronger local performance are more likely to contribute beneficial
+parameter updates. This factor ensures that task-oriented learning remains central during
+aggregation.
+3. Dataset Size Score
+We include dataset size to represent the statistical significance of each client update. Let ni
+denote the number of local training samples of client i:
+ni = |Di
+| (4.7)
+To reduce the effect of large variations in dataset sizes across clients, we apply a logarithmic
+transformation followed by normalization to map the values into the range [0,1]:
+n˜i =
+log(1 + ni)
+maxj
+log(1 + nj )
+(4.8)
+We choose this factor because updates learned from larger datasets are generally more
+stable, less sensitive to noise, and more representative of the local data distribution. This
+transformation ensures that dataset size contributes to the aggregation process in a controlled
+and bounded manner, while preserving its relative importance in FL aggregation.
+Weight Selection
+In our experiments, we set wssl = 0.5, wacc = 0.3, and wsize = 0.2. These values reflect
+the design priorities of our framework, where SSL quality is given the highest importance as
+it directly measures representation usefulness, while accuracy is assigned a moderate weight
+to preserve predictive performance, and dataset size is included with a smaller contribution
+to ensure statistical reliability without dominating the aggregation. Overall, this weighting
+strategy emphasizes representation learning while maintaining a balance between performance
+and stability.
+4.5.3 Softmax-Based Aggregation
+Given the aggregation score si computed for each client, we convert these scores into normalized
+aggregation weights using a temperature-scaled softmax:
+32
+Chapter 4 Our Contribution
+wi =
+exp(si)
+P
+j
+exp(sj )
+(4.9)
+The global model is then updated as a weighted combination of client models:
+θ
+(t+1) =
+|C|
+X
+i=1
+wi
+· θi
+(t)
+(4.10)
+4.5.4 Adaptive Projector Update
+A key design choice in our framework is deciding when to update the global SSL projector.
+Frequent updates can destabilize divergence estimation, while infrequent updates may cause
+the global representation to become outdated. To address this issue, we introduce a divergenceaware adaptive update strategy based on the behavior of client representations during training.
+At each communication round t, we compute the average client divergence:
+δ
+¯(t) =
+1
+|C|
+|C|
+X
+i=1
+δi
+(t)
+(4.11)
+The global projector is then updated as follows:
+ϕ
+(
+g
+t+1) =
+
+
+
+1
+|C|
+|C|
+X
+i=1
+ϕ
+(
+i
+t)
+, if δ
+¯(t) > δ∗
+ϕ
+(
+g
+t)
+, otherwise
+(4.12)
+• When δ
+¯(t) > δ∗
+, the average client divergence exceeds the adaptive divergence threshold.
+This indicates that the current global projector no longer aligns well with the updated
+client feature spaces, so we perform an update to realign the representation space.
+• When δ
+¯(t) ≤ δ
+∗
+, the divergence remains within the normal range. In this case, updating
+the projector would introduce unnecessary changes without meaningful benefit, so we
+keep it unchanged.
+Instead of using a fixed threshold, we define δ
+∗ using a percentile-based rule:
+δ
+∗ = P60  {δi
+(t)
+}
+|C|
+i=1 (4.13)
+where P60 denotes the 60th percentile of client divergences. This adaptive threshold follows
+the divergence distribution at each communication round while remaining less sensitive to
+extreme divergence values.
+Unlike fixed update intervals, the proposed strategy adapts naturally to training dynamics,
