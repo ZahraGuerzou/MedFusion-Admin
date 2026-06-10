@@ -1,11 +1,14 @@
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router";
 import { ArrowLeft, MapPin, Calendar, CreditCard, Users, Activity, Brain } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { supabase } from "../../lib/supabaseClient";
+import { toast } from "sonner";
 
-const participationData = [
+const defaultParticipationData = [
   { round: 1, participation: 45 },
   { round: 3, participation: 62 },
   { round: 5, participation: 71 },
@@ -16,7 +19,7 @@ const participationData = [
   { round: 15, participation: 94 },
 ];
 
-const assignedModels = [
+const defaultAssignedModels = [
   { id: "MRI-EFF-v1.4", modality: "Brain MRI", architecture: "EfficientNetV2", version: "v1.4", status: "Active" },
   { id: "CXR-RES-v2.1", modality: "Chest X-Ray", architecture: "ResNet50", version: "v2.1", status: "Active" },
   { id: "CT-DENSE-v1.0", modality: "CT Scan", architecture: "DenseNet121", version: "v1.0", status: "Training" },
@@ -24,6 +27,33 @@ const assignedModels = [
 
 export function HospitalDetails() {
   const { id } = useParams();
+  const [hospital, setHospital] = useState<any | null>(null);
+  const [participationData, setParticipationData] = useState(defaultParticipationData);
+  const [assignedModels, setAssignedModels] = useState(defaultAssignedModels);
+
+  useEffect(() => {
+    (async () => {
+      if (!id) return;
+      try {
+        const { data, error } = await supabase.from("hospitals").select("*").eq("id", id).maybeSingle();
+        if (error) throw error;
+        setHospital(data);
+
+        const { count: totalRounds } = await supabase.from("fl_rounds").select("id", { count: "exact" });
+        const { count: hospitalRounds } = await supabase.from("fl_rounds").select("id", { count: "exact" }).eq("hospital_id", id);
+        const participation = totalRounds && totalRounds > 0 ? Math.round(((hospitalRounds ?? 0) / totalRounds) * 100) : 0;
+        setParticipationData([{ round: 1, participation }]);
+
+        const { data: modelsData } = await supabase.from("local_model_weights").select("id, name, modality, status").eq("hospital_id", id).limit(10);
+        if (modelsData && modelsData.length > 0) {
+          setAssignedModels(modelsData.map((m: any) => ({ id: m.id, modality: m.modality ?? "Unknown", architecture: m.name ?? "", version: "", status: m.status ?? "" })));
+        }
+      } catch (err: any) {
+        console.error(err);
+        toast.error(`Failed to load hospital: ${err?.message ?? String(err)}`);
+      }
+    })();
+  }, [id]);
 
   return (
     <div className="p-6 space-y-6">
@@ -35,11 +65,11 @@ export function HospitalDetails() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">CHU Alger</h1>
+<h1 className="text-3xl font-bold text-gray-900 dark:text-white">{hospital?.name ?? "Hospital"}</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Hospital Details & Performance</p>
-        </div>
-        <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20">
-          Premium Plan
+         </div>
+         <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20">
+           {hospital?.plan ?? hospital?.subscription_plan ?? "Plan"}
         </Badge>
       </div>
 
@@ -53,7 +83,7 @@ export function HospitalDetails() {
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Country</p>
-                <p className="font-semibold text-gray-900 dark:text-white">Algeria</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{hospital?.country ?? "Unknown"}</p>
               </div>
             </div>
           </CardContent>
@@ -67,7 +97,7 @@ export function HospitalDetails() {
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Registered</p>
-                <p className="font-semibold text-gray-900 dark:text-white">Jan 2026</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{hospital?.created_at ? new Date(hospital.created_at).toLocaleDateString() : "-"}</p>
               </div>
             </div>
           </CardContent>
@@ -81,7 +111,7 @@ export function HospitalDetails() {
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Team Size</p>
-                <p className="font-semibold text-gray-900 dark:text-white">16 Members</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{hospital?.number_of_doctors ?? hospital?.doctors ?? "-"} Doctors</p>
               </div>
             </div>
           </CardContent>
@@ -95,7 +125,7 @@ export function HospitalDetails() {
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Participation</p>
-                <p className="font-semibold text-gray-900 dark:text-white">94%</p>
+                <p className="font-semibold text-gray-900 dark:text-white">{participationData[0]?.participation ?? "-"}%</p>
               </div>
             </div>
           </CardContent>
@@ -111,15 +141,15 @@ export function HospitalDetails() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Doctors</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">12</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{hospital?.number_of_doctors ?? hospital?.doctors ?? "-"}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">AI Team Members</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">4</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{hospital?.number_of_ai_team ?? hospital?.aiTeams ?? "-"}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Active Researchers</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">8</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{hospital?.active_researchers ?? 8}</p>
             </div>
           </div>
         </CardContent>

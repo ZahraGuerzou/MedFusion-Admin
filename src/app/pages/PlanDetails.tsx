@@ -10,8 +10,8 @@ import { Progress } from "../components/ui/progress";
 import { toast } from "sonner";
 import { motion } from "motion/react";
 
-const plansData = [
-  {
+const plansData: Record<string, any> = {
+  free: {
     id: "free",
     name: "Free Plan",
     price: 0,
@@ -31,7 +31,7 @@ const plansData = [
     subscribers: 3,
     revenue: 0,
   },
-  {
+  standard: {
     id: "standard",
     name: "Standard Plan",
     price: 2000,
@@ -52,7 +52,7 @@ const plansData = [
     subscribers: 5,
     revenue: 10000,
   },
-  {
+  premium: {
     id: "premium",
     name: "Premium Plan",
     price: 4000,
@@ -74,23 +74,32 @@ const plansData = [
     subscribers: 10,
     revenue: 40000,
   },
-];
+};
 
 export function PlanDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const planIndex = id ? parseInt(id) : 0;
-  const plan = plansData[planIndex];
+  
+  // Get plan by ID string (not array index)
+  const plan = plansData[id as keyof typeof plansData];
 
   const [isEditMode, setIsEditMode] = useState(false);
-  const [planName, setPlanName] = useState(plan.name);
-  const [planPrice, setPlanPrice] = useState(plan.price);
-  const [features, setFeatures] = useState(plan.features);
+  const [planName, setPlanName] = useState(plan?.name || "");
+  const [planPrice, setPlanPrice] = useState(plan?.price || 0);
+  const [features, setFeatures] = useState(plan?.features || []);
 
   if (!plan) {
     return (
       <div className="p-6">
-        <p className="text-gray-500">Plan not found</p>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <p className="text-gray-500">Plan not found</p>
+            <Button onClick={() => navigate("/subscriptions")} className="mt-4">
+              Back to Subscriptions
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

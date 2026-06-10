@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { Upload, FileCheck, AlertCircle, X, FileText, ChevronRight, Edit2, Check } from "lucide-react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
+import { supabase } from "../../lib/supabaseClient";
 
 interface UploadedModel {
   name: string;
@@ -54,7 +55,6 @@ function StepsWizard({ onComplete }: { onComplete: () => void }) {
         <span className="text-xs font-normal text-gray-400">{currentStep + 1} / {steps.length}</span>
       </p>
 
-      {/* Completed */}
       {steps.slice(0, currentStep).map((step, idx) => (
         <div key={idx} className="flex items-start gap-3 p-2 mb-1 rounded-lg opacity-60">
           <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -64,7 +64,6 @@ function StepsWizard({ onComplete }: { onComplete: () => void }) {
         </div>
       ))}
 
-      {/* Current */}
       <motion.div
         key={currentStep}
         initial={{ opacity: 0, x: 12 }}
@@ -116,7 +115,6 @@ function StepsWizard({ onComplete }: { onComplete: () => void }) {
         </div>
       </motion.div>
 
-      {/* Upcoming */}
       {steps.slice(currentStep + 1).map((step, idx) => (
         <div key={idx} className="flex items-start gap-3 p-2 mb-1 rounded-lg opacity-30">
           <div className="w-6 h-6 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -129,16 +127,21 @@ function StepsWizard({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-export function ModelUploadZone() {
+interface ModelUploadZoneProps {
+  /** Called after a model is successfully saved to the database */
+  onModelSaved?: () => void;
+}
+
+export function ModelUploadZone({ onModelSaved }: ModelUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedModel, setUploadedModel] = useState<UploadedModel | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [stepsCompleted, setStepsCompleted] = useState(false);
 
-  // Editable model info fields
   const [editModality, setEditModality] = useState("");
   const [editArchitecture, setEditArchitecture] = useState("");
   const [editVersion, setEditVersion] = useState("");
@@ -193,7 +196,7 @@ export function ModelUploadZone() {
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0 && files[0].name.endsWith('.zip')) {
+    if (files.length > 0) {
       simulateUpload(files[0]);
     }
   }, []);
@@ -205,22 +208,200 @@ export function ModelUploadZone() {
     }
   };
 
-  const approveModel = () => {
-    if (!stepsCompleted) {
-      toast.error("Please complete all steps before approving");
-      return;
-    }
-    if (instructions.trim() === "") {
-      toast.error("Please add deployment instructions before approving");
-      return;
-    }
-    toast.success("Model approved and ready for deployment!", {
-      description: `${editModality} model with instructions added`,
-    });
+  const resetState = () => {
     setShowPreview(false);
     setUploadedModel(null);
     setInstructions("");
     setStepsCompleted(false);
+    setEditModality("");
+    setEditArchitecture("");
+    setEditVersion("");
+    setUploadProgress(0);
+  };
+
+  /**
+   * Save the uploaded model to both model_packages AND global_models tables
+   * With proper foreign key handling
+   */
+  const saveModelToDatabase = async () => {
+    if (!stepsCompleted) {
+      toast.error("Please complete all steps before saving");
+      return;
+    }
+    if (!instructions.trim()) {
+      toast.error("Please add deployment instructions before saving");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // 1. Get or create an FL round for this model upload
+      let flRoundId: string | null = null;
+      
+      // Try to get existing FL round first
+      const { data: existingRound, error: roundFetchError } = await supabase
+        .from("fl_rounds")
+        .select("id, round_number")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (roundFetchError) {
+        console.error("Error fetching FL rounds:", roundFetchError);
+      }
+
+      if (existingRound && existingRound.length > 0) {
+        // Use existing round
+        flRoundId = existingRound[0].id;
+        console.log("Using existing FL round:", flRoundId);
+      } else {
+        // Create a new FL round for this model
+        // First get a hospital and AI team member
+        const { data: anyHospital } = await supabase
+          .from("hospitals")
+          .select("id")
+          .limit(1);
+        
+        const { data: anyAi } = await supabase
+          .from("ai_team")
+          .select("id")
+          .limit(1);
+
+        if (!anyHospital || anyHospital.length === 0) {
+          toast.error("No hospitals found. Please add a hospital first.");
+          return;
+        }
+
+        if (!anyAi || anyAi.length === 0) {
+          toast.error("No AI team members found. Please add an AI team member first.");
+          return;
+        }
+
+        const { data: newRound, error: createRoundError } = await supabase
+          .from("fl_rounds")
+          .insert({
+            hospital_id: anyHospital[0].id,
+            ai_team_id: anyAi[0].id,
+            round_number: 1,
+            status: "pending",
+            created_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single();
+
+        if (createRoundError) {
+          console.error("Error creating FL round:", createRoundError);
+          throw createRoundError;
+        }
+
+        flRoundId = newRound.id;
+        console.log("Created new FL round:", flRoundId);
+      }
+
+      if (!flRoundId) {
+        toast.error("Could not create or find an FL round");
+        return;
+      }
+
+      // 2. Get AI team and hospital for the model package
+      const { data: aiTeam } = await supabase
+        .from("ai_team")
+        .select("id")
+        .limit(1);
+      
+      const { data: hospital } = await supabase
+        .from("hospitals")
+        .select("id")
+        .limit(1);
+
+      if (!aiTeam || aiTeam.length === 0 || !hospital || hospital.length === 0) {
+        toast.error("Missing required data (AI team or hospitals)");
+        return;
+      }
+
+      const aiTeamId = aiTeam[0].id;
+      const hospitalId = hospital[0].id;
+      const distId = `model_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const modelCode = editArchitecture
+        ? `${editArchitecture} (${editModality})`
+        : uploadedModel?.name?.replace(/\.[^/.]+$/, "") ?? "Uploaded Model";
+
+      const packageContents = {
+        fileName: uploadedModel?.name,
+        fileSizeMB: uploadedModel ? (uploadedModel.size / (1024 * 1024)).toFixed(2) : 0,
+        modality: editModality,
+        architecture: editArchitecture,
+        version: editVersion || "v1.0",
+        uploadedAt: new Date().toISOString()
+      };
+
+      const timeline = {
+        uploaded: new Date().toISOString(),
+        stepsCompleted: true,
+        instructionsAdded: true
+      };
+
+      // 3. Insert into model_packages table
+      const { error: insertPackageError } = await supabase
+        .from("model_packages")
+        .insert({
+          ai_team_id: aiTeamId,
+          fl_round_id: flRoundId,
+          hospital_id: hospitalId,
+          zip_url: null,
+          notebook_url: null,
+          instructions: instructions,
+          status: "sent",
+          sent_at: new Date().toISOString(),
+          recipient_name: "AI Team",
+          recipient_role: "researcher",
+          model_code: modelCode,
+          modality: editModality,
+          action: "upload",
+          delivery_status: "pending",
+          dist_id: distId,
+          package_size_mb: uploadedModel ? uploadedModel.size / (1024 * 1024) : 0,
+          estimated_delivery: "Pending review",
+          delivered_at: null,
+          package_contents: packageContents,
+          timeline: timeline
+        });
+
+      if (insertPackageError) {
+        console.error("Error inserting into model_packages:", insertPackageError);
+        throw insertPackageError;
+      }
+
+      // 4. Insert into global_models table with REQUIRED fl_round_id
+      const { error: insertGlobalError } = await supabase
+        .from("global_models")
+        .insert({
+          fl_round_id: flRoundId,  // REQUIRED foreign key!
+          name: modelCode,
+          modality: editModality,
+          version: editVersion || "v1.0",
+          accuracy: 85.0, // Default accuracy
+          global_accuracy: 85.0,
+          status: "active",
+          tags: [editModality, editArchitecture, "uploaded"],
+          aggregated_at: new Date().toISOString(),
+        });
+
+      if (insertGlobalError) {
+        console.error("Error inserting into global_models:", insertGlobalError);
+        toast.warning("Model saved to packages but failed to add to global models list. Please check foreign key constraints.");
+        throw insertGlobalError;
+      }
+
+      toast.success("Model saved successfully! It is now available for FL training.");
+      resetState();
+      onModelSaved?.();
+      
+    } catch (err: any) {
+      console.error("Failed to save model:", err);
+      toast.error(`Failed to save model: ${err?.message ?? "Unknown error"}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -237,7 +418,7 @@ export function ModelUploadZone() {
       >
         <input
           type="file"
-          accept=".zip"
+          accept=".zip,.h5,.pt,.pth,.onnx,.pb"
           onChange={handleFileSelect}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           disabled={isUploading}
@@ -265,11 +446,11 @@ export function ModelUploadZone() {
               Drop your model package here
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              or click to browse (.zip files only)
+              or click to browse (.zip, .h5, .pt, .onnx files)
             </p>
             <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
               <FileCheck className="w-4 h-4" />
-              <span>Supports: model_package.zip with weights, config, and metadata</span>
+              <span>Model will be stored and available for FL training</span>
             </div>
           </div>
         )}
@@ -293,11 +474,11 @@ export function ModelUploadZone() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Model Preview</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Review before approval</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Review &amp; save to database</p>
                 </div>
               </div>
               <button
-                onClick={() => { setShowPreview(false); setUploadedModel(null); }}
+                onClick={resetState}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-5 h-5" />
@@ -309,7 +490,7 @@ export function ModelUploadZone() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">File Name</p>
-                  <p className="font-medium text-gray-900 dark:text-white">{uploadedModel.name}</p>
+                  <p className="font-medium text-gray-900 dark:text-white truncate">{uploadedModel.name}</p>
                 </div>
                 <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Size</p>
@@ -321,7 +502,9 @@ export function ModelUploadZone() {
 
               {/* Editable model info */}
               <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200 dark:border-emerald-700">
-                <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-3 font-semibold">Model Information (editable)</p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-3 font-semibold">
+                  Model Information — will be saved to database
+                </p>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs text-emerald-700 dark:text-emerald-400 mb-1 block">Modality</label>
@@ -389,26 +572,33 @@ export function ModelUploadZone() {
               <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
                 <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-blue-800 dark:text-blue-300">
-                  Model will be validated and added to the federated registry after approval with instructions.
+                  Model will be stored in <strong>model_packages</strong> AND <strong>global_models</strong> tables. 
+                  It will be immediately available for FL training.
                 </p>
               </div>
             </div>
 
             <div className="flex gap-3">
               <button
-                onClick={approveModel}
-                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!instructions.trim() || !stepsCompleted}
+                onClick={saveModelToDatabase}
+                disabled={!instructions.trim() || !stepsCompleted || isSaving}
+                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Approve & Deploy with Instructions
+                {isSaving ? (
+                  <>
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                    />
+                    Saving to database…
+                  </>
+                ) : (
+                  "Save Model & Make Available for FL Training"
+                )}
               </button>
               <button
-                onClick={() => {
-                  setShowPreview(false);
-                  setUploadedModel(null);
-                  setInstructions("");
-                  setStepsCompleted(false);
-                }}
+                onClick={resetState}
                 className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
               >
                 Cancel

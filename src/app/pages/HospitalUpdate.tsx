@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, Building2, Mail, Globe, CreditCard, Save, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
+import { supabase } from "../../lib/supabaseClient";
 
 export function HospitalUpdate() {
   const navigate = useNavigate();
@@ -14,6 +15,8 @@ export function HospitalUpdate() {
   const [formData, setFormData] = useState({
     name: "CHU Alger",
     country: "Algeria",
+    city: "",
+    address: "",
     email: "contact@chualger.dz",
     plan: "Premium",
     status: "Active",
@@ -21,10 +24,57 @@ export function HospitalUpdate() {
     aiTeams: "8",
   });
 
+  useEffect(() => {
+    (async () => {
+      if (!id) return;
+      try {
+        const { data, error } = await supabase.from("hospitals").select("*").eq("id", id).maybeSingle();
+        if (error) throw error;
+        if (data) {
+          setFormData({
+            name: data.name ?? "",
+            country: data.country ?? "",
+            city: data.city ?? "",
+            address: data.full_address ?? data.address ?? "",
+            email: data.contact_email ?? data.email ?? "",
+            plan: data.plan ?? data.subscription_plan ?? "",
+            status: data.status ?? "",
+            doctors: data.number_of_doctors ?? data.doctors ?? "",
+            aiTeams: data.number_of_ai_team ?? data.aiTeams ?? "",
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to load hospital");
+      }
+    })();
+  }, [id]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Hospital updated successfully!");
-    setTimeout(() => navigate("/hospitals"), 1500);
+    (async () => {
+      try {
+        if (!id) return;
+        const payload: any = {
+          name: formData.name,
+          country: formData.country,
+          city: formData.city,
+          full_address: formData.address,
+          contact_email: formData.email,
+          plan: formData.plan,
+          status: formData.status,
+          number_of_doctors: formData.doctors || null,
+          number_of_ai_team: formData.aiTeams || null,
+        };
+        const { error } = await supabase.from("hospitals").update(payload).eq("id", id);
+        if (error) throw error;
+        toast.success("Hospital updated successfully!");
+        setTimeout(() => navigate("/hospitals"), 1200);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(`Failed to update hospital: ${err?.message ?? String(err)}`);
+      }
+    })();
   };
 
   const handleCancel = () => {

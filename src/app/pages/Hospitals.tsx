@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Eye, Edit, Trash2, Users, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -15,17 +15,9 @@ import {
 } from "../components/ui/table";
 import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
 import { toast } from "sonner";
+import { supabase, testConnection } from "../../lib/supabaseClient";
 
-const hospitals = [
-  { id: 1, name: "CHU Alger", country: "Algeria", plan: "Premium", activeModels: 8, participation: 94, status: "Active" },
-  { id: 2, name: "CHU Oran", country: "Algeria", plan: "Premium", activeModels: 6, participation: 88, status: "Active" },
-  { id: 3, name: "CHU Constantine", country: "Algeria", plan: "Standard", activeModels: 4, participation: 76, status: "Active" },
-  { id: 4, name: "Hôpital Central Tunis", country: "Tunisia", plan: "Premium", activeModels: 7, participation: 91, status: "Active" },
-  { id: 5, name: "Casablanca Medical Center", country: "Morocco", plan: "Standard", activeModels: 5, participation: 82, status: "Active" },
-  { id: 6, name: "Cairo University Hospital", country: "Egypt", plan: "Free", activeModels: 2, participation: 45, status: "Limited" },
-  { id: 7, name: "Tripoli General Hospital", country: "Libya", plan: "Standard", activeModels: 3, participation: 68, status: "Active" },
-  { id: 8, name: "Nouakchott Regional Hospital", country: "Mauritania", plan: "Free", activeModels: 1, participation: 34, status: "Limited" },
-];
+// hospitals will be loaded from Supabase
 
 const planColors = {
   Premium: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20",
@@ -47,8 +39,99 @@ export function Hospitals() {
     hospitalName: "",
   });
 
+  const [hospitals, setHospitals] = useState<Array<any>>([]);
+  const [loading, setLoading] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      await fetchHospitals();
+    })();
+  }, []);
+
+  async function fetchHospitals() {
+    try {
+      setLoading(true);
+      const { data: hospitalsData, error: hError } = await supabase
+        .from("hospitals")
+        .select("*");
+
+      if (hError) throw hError;
+
+      // total FL rounds for participation calculation
+      const { count: totalRoundsCount } = await supabase.from("fl_rounds").select("id", { count: "exact" });
+      const totalRounds = totalRoundsCount ?? 0;
+
+      const enriched = await Promise.all(
+        (hospitalsData || []).map(async (h: any) => {
+          const { count: activeModelsCount } = await supabase
+            .from("local_model_weights")
+            .select("id", { count: "exact" })
+            .eq("hospital_id", h.id);
+
+          const { count: roundsCount } = await supabase
+            .from("fl_rounds")
+            .select("id", { count: "exact" })
+            .eq("hospital_id", h.id);
+
+          // country fallbacks
+          const country = h.country ?? h.country_name ?? h.location ?? h.address ?? "Unknown";
+
+          // subscription plan id/name fallbacks
+          const planId = h.subscription_plan_id ?? h.plan_id ?? h.subscription_plan ?? h.plan;
+          let plan = "Free";
+          if (planId) {
+            // if planId looks like an id (number or uuid), try to fetch name
+            if (typeof planId === "number" || typeof planId === "string") {
+              const { data: planData, error: planErr } = await supabase
+                .from("subscription_plans")
+                .select("name")
+                .eq("id", planId)
+                .maybeSingle();
+              if (!planErr && planData?.name) plan = planData.name;
+              else if (typeof planId === "string") plan = planId; // fallback to string value
+            }
+          }
+
+          const participation = totalRounds > 0 ? Math.round(((roundsCount ?? 0) / totalRounds) * 100) : 0;
+
+          return {
+            id: h.id,
+            name: h.name ?? h.title ?? "Unnamed Hospital",
+            country,
+            plan,
+            activeModels: activeModelsCount ?? 0,
+            participation,
+            status: h.status ?? h.state ?? "Active",
+          };
+        })
+      );
+
+      setHospitals(enriched);
+    } catch (err: any) {
+      console.error(err);
+      const msg = err?.message || String(err);
+      toast.error(`Failed to load hospitals: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const handleDelete = () => {
-    toast.success(`Hospital "${deleteModal.hospitalName}" deleted successfully`);
+    (async () => {
+      try {
+        const id = deleteModal.hospitalId;
+        if (!id) return;
+        const { error } = await supabase.from("hospitals").delete().eq("id", id);
+        if (error) throw error;
+        toast.success(`Hospital "${deleteModal.hospitalName}" deleted successfully`);
+        setDeleteModal({ isOpen: false, hospitalId: null, hospitalName: "" });
+        fetchHospitals();
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to delete hospital");
+      }
+    })();
   };
 
   return (
@@ -67,12 +150,36 @@ export function Hospitals() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Hospitals</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">Manage all hospitals and institutions</p>
         </div>
-        <Link to="/hospitals/add">
-          <Button className="bg-emerald-600 hover:bg-emerald-700">
-            <Users className="w-4 h-4 mr-2" />
-            Add Hospital
-          </Button>
-        </Link>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  setDiagLoading(true);
+                  const res = await testConnection();
+                  if (res?.ok) {
+                    toast.success("Supabase connection OK");
+                  } else {
+                    const msg = res?.error?.message ?? String(res?.error ?? "Unknown error");
+                    toast.error(`Supabase test failed: ${msg}`);
+                  }
+                } catch (err: any) {
+                  toast.error(`Supabase test failed: ${err?.message ?? String(err)}`);
+                } finally {
+                  setDiagLoading(false);
+                }
+              }}
+              disabled={diagLoading}
+            >
+              {diagLoading ? "Testing..." : "Test DB"}
+            </Button>
+            <Link to="/hospitals/add">
+              <Button className="bg-emerald-600 hover:bg-emerald-700">
+                <Users className="w-4 h-4 mr-2" />
+                Add Hospital
+              </Button>
+            </Link>
+          </div>
       </div>
 
       {/* Search and Filters */}

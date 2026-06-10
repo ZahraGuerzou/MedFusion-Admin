@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Switch } from "../components/ui/switch";
 import { Badge } from "../components/ui/badge";
 import { toast } from "sonner";
+import { supabase } from "../../lib/supabaseClient";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 
@@ -46,17 +47,41 @@ export function AddHospital() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    (async () => {
+      try {
+        const payload: any = {
+          name: formData.name,
+          country: formData.country,
+          city: formData.city,
+          full_address: formData.address,
+          contact_email: formData.contactEmail,
+          contact_phone: formData.contactPhone,
+          admin_name: formData.adminName,
+          admin_email: formData.adminEmail,
+          plan: formData.plan,
+          number_of_doctors: formData.numberOfDoctors || null,
+          number_of_ai_team: formData.numberOfAITeam || null,
+          status: formData.status,
+        };
 
-    toast.success(
-      <div>
-        <p className="font-semibold">Hospital Added Successfully!</p>
-        <p className="text-sm">{formData.name} has been registered to the network</p>
-      </div>
-    );
+        const { data, error } = await supabase.from("hospitals").insert(payload).select("id").maybeSingle();
+        if (error) throw error;
 
-    setTimeout(() => {
-      navigate("/hospitals");
-    }, 2000);
+        toast.success(
+          <div>
+            <p className="font-semibold">Hospital Added Successfully!</p>
+            <p className="text-sm">{formData.name} has been registered to the network</p>
+          </div>
+        );
+
+        setTimeout(() => {
+          navigate("/hospitals");
+        }, 1200);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(`Failed to create hospital: ${err?.message ?? String(err)}`);
+      }
+    })();
   };
 
   const toggleArrayItem = (array: string[], item: string) => {

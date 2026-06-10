@@ -1,4 +1,6 @@
-import { useState } from "react";
+/// <reference types="react" />
+/// <reference types="react/jsx-runtime" />
+import { useEffect, useState } from "react";
 import {
   Send,
   Package,
@@ -23,6 +25,7 @@ import {
   BadgeCheck,
   ArrowUpRight,
 } from "lucide-react";
+import { supabase } from "../../lib/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -55,20 +58,9 @@ interface DistributionRecord {
   instructions: string;
 }
 
-const distributionHistory: DistributionRecord[] = [
-  { id: "DIST-001", hospital: "CHU Alger", recipient: "Dr. Ahmed Mohamed", recipientType: "doctor", model: "MRI-EFF-v1.4", modality: "Brain MRI", action: "deployed", status: "success", deploymentDate: "2026-05-19 10:30", deliveryDate: "2026-05-19 10:35", packageSize: "245 MB", instructions: "Model ready for clinical diagnosis with Grad-CAM explanations enabled" },
-  { id: "DIST-002", hospital: "CHU Oran", recipient: "AI Team - Fatima Hassan", recipientType: "ai-team", model: "CXR-RES-v2.1", modality: "Chest X-Ray", action: "deployed", status: "success", deploymentDate: "2026-05-19 09:15", deliveryDate: "2026-05-19 09:20", packageSize: "189 MB", instructions: "Training package with notebook and local update submission guide" },
-  { id: "DIST-003", hospital: "CHU Constantine", recipient: "Dr. Sarah Benali", recipientType: "doctor", model: "OCT-VIT-v1.2", modality: "Retinal OCT", action: "delivered", status: "success", deploymentDate: "2026-05-18 16:45", deliveryDate: "2026-05-18 16:50", packageSize: "312 MB", instructions: "Retinal disease classification model with attention visualization" },
-  { id: "DIST-004", hospital: "Hospital Mustapha", recipient: "AI Team - Youssef Mansour", recipientType: "ai-team", model: "MRI-EFF-v1.4", modality: "Brain MRI", action: "updated", status: "success", deploymentDate: "2026-05-17 11:00", deliveryDate: "2026-05-17 11:05", packageSize: "245 MB", instructions: "Updated weights from Round 15 with improved accuracy" },
-  { id: "DIST-005", hospital: "Casablanca Medical Center", recipient: "Dr. Omar Khalil", recipientType: "doctor", model: "SKIN-CONV-v3.0", modality: "Skin Lesion", action: "deployed", status: "success", deploymentDate: "2026-05-18 14:20", deliveryDate: "2026-05-18 14:25", packageSize: "178 MB", instructions: "Skin cancer detection model using HAM10000 dataset protocol" },
-  { id: "DIST-006", hospital: "Cairo University Hospital", recipient: "AI Team - Ahmed Mostafa", recipientType: "ai-team", model: "CXR-RES-v2.1", modality: "Chest X-Ray", action: "delivered", status: "success", deploymentDate: "2026-05-16 08:30", deliveryDate: "2026-05-16 08:35", packageSize: "189 MB", instructions: "Complete federated learning package with local training scripts" },
-  { id: "DIST-007", hospital: "Tripoli General Hospital", recipient: "Dr. Fatima Al-Mansoori", recipientType: "doctor", model: "MRI-EFF-v1.4", modality: "Brain MRI", action: "deployed", status: "success", deploymentDate: "2026-05-15 13:45", deliveryDate: "2026-05-15 13:50", packageSize: "245 MB", instructions: "Brain tumor detection model with preprocessing requirements" },
-];
-
-const modalities = ["All Modalities", "Brain MRI", "Chest X-Ray", "Retinal OCT", "Skin Lesion"];
 const actions = ["All Actions", "deployed", "updated", "delivered"];
 
-const modalityIcon: Record<string, React.ReactNode> = {
+const modalityIcon: Record<string, any> = {
   "Brain MRI": <Brain className="w-3.5 h-3.5" />,
   "Chest X-Ray": <ScanLine className="w-3.5 h-3.5" />,
   "Retinal OCT": <Eye className="w-3.5 h-3.5" />,
@@ -89,13 +81,6 @@ const WORKFLOW_STEPS = [
   { label: "Track Delivery",     icon: Activity,      color: "from-emerald-500 to-teal-600",  shadow: "shadow-emerald-500/25" },
 ];
 
-const STAT_CARDS = [
-  { label: "Total Deployments", value: distributionHistory.length.toString(), icon: BadgeCheck, gradient: "from-emerald-500 to-teal-600", bg: "from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-900/20", text: "text-emerald-700 dark:text-emerald-400", val: "text-emerald-900 dark:text-emerald-200", shadow: "shadow-emerald-500/20" },
-  { label: "Active Models",     value: `${new Set(distributionHistory.map((r) => r.model)).size}`,  icon: Network, gradient: "from-blue-500 to-indigo-600", bg: "from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-900/20", text: "text-blue-700 dark:text-blue-400", val: "text-blue-900 dark:text-blue-200", shadow: "shadow-blue-500/20" },
-  { label: "Hospitals Served",  value: `${new Set(distributionHistory.map((r) => r.hospital)).size}`, icon: Building2, gradient: "from-violet-500 to-purple-600", bg: "from-violet-50 to-purple-50 dark:from-violet-950/20 dark:to-purple-900/20", text: "text-violet-700 dark:text-violet-400", val: "text-violet-900 dark:text-violet-200", shadow: "shadow-violet-500/20" },
-  { label: "Success Rate",      value: "100%", icon: TrendingUp, gradient: "from-amber-500 to-orange-500", bg: "from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-900/20", text: "text-amber-700 dark:text-amber-400", val: "text-amber-900 dark:text-amber-200", shadow: "shadow-amber-500/20" },
-];
-
 function RecipientBadge({ type }: { type: "doctor" | "ai-team" }) {
   return type === "doctor" ? (
     <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-blue-800 font-medium">
@@ -113,9 +98,89 @@ export function ModelDistribution() {
   const [actionFilter, setActionFilter] = useState("All Actions");
   const [dateFilter, setDateFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRecord, setSelectedRecord] = useState<DistributionRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState(null as any);
+  const [availableModalities, setAvailableModalities] = useState(["All Modalities"] as string[]);
+  const [records, setRecords] = useState<DistributionRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [totalModels, setTotalModels] = useState(0);
 
-  const filteredRecords = distributionHistory.filter((record) => {
+  const loadDistributionHistory = async () => {
+    setIsLoading(true);
+    try {
+      const [{ data: packages }, { data: hospitals }, { data: globalModels }] = await Promise.all([
+        supabase
+          .from("model_packages")
+          .select("*")
+          .order("sent_at", { ascending: false }),
+        supabase.from("hospitals").select("id, name"),
+        supabase.from("global_models").select("id, name, modality, status"),
+      ]);
+
+      const hospitalMap = Object.fromEntries(
+        (hospitals ?? []).map((h: any) => [h.id, h.name])
+      );
+
+      // Count active models from global_models (not from packages)
+      const activeModelsCount = (globalModels ?? []).filter(
+        (model: any) => model.status === "active"
+      ).length;
+      setTotalModels(activeModelsCount);
+
+      const mappedRecords: DistributionRecord[] = (packages ?? []).map(
+        (pkg: any, index: number) => {
+          const recipientRole: "doctor" | "ai-team" =
+            pkg.recipient_role === "AI Team" ? "ai-team" : "doctor";
+
+          const rawAction = String(pkg.action ?? "deployed").toLowerCase();
+          const normalizedAction: DistributionRecord["action"] =
+            rawAction === "updated" ? "updated"
+            : rawAction === "delivered" ? "delivered"
+            : "deployed";
+
+          return {
+            id:            pkg.dist_id ?? `PKG-${String(index + 1).padStart(3, "0")}`,
+            hospital:      hospitalMap[pkg.hospital_id] ?? "Unknown Hospital",
+            recipient:     pkg.recipient_name ?? "Unknown",
+            recipientType: recipientRole,
+            model:         pkg.model_code ?? pkg.zip_url ?? "Unknown Model",
+            modality:      pkg.modality   ?? "Unknown",
+            action:        normalizedAction,
+            status:        "success",
+            deploymentDate: pkg.sent_at
+              ? new Date(pkg.sent_at).toLocaleString()
+              : "Unknown",
+            deliveryDate: pkg.delivered_at
+              ? new Date(pkg.delivered_at).toLocaleString()
+              : "Pending",
+            packageSize:  pkg.package_size_mb ? `${pkg.package_size_mb} MB` : "N/A",
+            instructions: pkg.instructions ?? "N/A",
+          };
+        }
+      );
+
+      const uniqueModalities = Array.from(
+        new Set([
+          "All Modalities",
+          ...mappedRecords.map((r) => r.modality).filter(Boolean),
+        ])
+      );
+
+      setRecords(mappedRecords);
+      setAvailableModalities(
+        uniqueModalities.length ? uniqueModalities : ["All Modalities"]
+      );
+    } catch (error) {
+      console.error("Failed to load distribution history:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDistributionHistory();
+  }, []);
+
+  const filteredRecords = records.filter((record: DistributionRecord) => {
     const matchesModality = modalityFilter === "All Modalities" || record.modality === modalityFilter;
     const matchesAction = actionFilter === "All Actions" || record.action === actionFilter;
     const matchesDate = !dateFilter || record.deploymentDate.includes(dateFilter);
@@ -127,10 +192,25 @@ export function ModelDistribution() {
     return matchesModality && matchesAction && matchesDate && matchesSearch;
   });
 
+  const totalDeployments = records.length;
+  const hospitalsServed = new Set(
+    records.filter((r: DistributionRecord) => r.hospital !== "Unknown Hospital").map((r: DistributionRecord) => r.hospital)
+  ).size;
+  const successRate = records.length
+    ? `${Math.round((records.filter((r: DistributionRecord) => r.status === "success").length / records.length) * 100)}%`
+    : "0%";
+
+  const summaryCards = [
+    { label: "Total Deployments", value: totalDeployments.toString(), icon: BadgeCheck, gradient: "from-emerald-500 to-teal-600", bg: "from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-900/20", text: "text-emerald-700 dark:text-emerald-400", val: "text-emerald-900 dark:text-emerald-200", shadow: "shadow-emerald-500/20" },
+    { label: "Active Models", value: totalModels.toString(), icon: Network, gradient: "from-blue-500 to-indigo-600", bg: "from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-900/20", text: "text-blue-700 dark:text-blue-400", val: "text-blue-900 dark:text-blue-200", shadow: "shadow-blue-500/20" },
+    { label: "Hospitals Served", value: hospitalsServed.toString(), icon: Building2, gradient: "from-violet-500 to-purple-600", bg: "from-violet-50 to-purple-50 dark:from-violet-950/20 dark:to-purple-900/20", text: "text-violet-700 dark:text-violet-400", val: "text-violet-900 dark:text-violet-200", shadow: "shadow-violet-500/20" },
+    { label: "Success Rate", value: successRate, icon: TrendingUp, gradient: "from-amber-500 to-orange-500", bg: "from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-900/20", text: "text-amber-700 dark:text-amber-400", val: "text-amber-900 dark:text-amber-200", shadow: "shadow-amber-500/20" },
+  ];
+
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
 
-      {/* ── Page Header ── */}
+      {/* Page Header */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -150,14 +230,24 @@ export function ModelDistribution() {
             Create federated learning sessions and track model distributions across institutions
           </p>
         </div>
-        <Badge className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 px-3 py-1.5 text-xs font-semibold">
-          {distributionHistory.length} total records
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadDistributionHistory}
+            className="text-xs rounded-lg border-gray-200 dark:border-gray-700"
+          >
+            Refresh
+          </Button>
+          <Badge className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 px-3 py-1.5 text-xs font-semibold">
+            {records.length} total records
+          </Badge>
+        </div>
       </motion.div>
 
-      {/* ── Stat Cards ── */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {STAT_CARDS.map((stat, i) => (
+        {summaryCards.map((stat, i) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 16 }}
@@ -180,7 +270,7 @@ export function ModelDistribution() {
         ))}
       </div>
 
-      {/* ── Distribution Workflow Banner ── */}
+      {/* Distribution Workflow Banner */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -225,12 +315,12 @@ export function ModelDistribution() {
         </Card>
       </motion.div>
 
-      {/* ── FL Training Wizard ── */}
+      {/* FL Training Wizard */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-        <FLTrainingWizard />
+        <FLTrainingWizard onTrainingLaunched={loadDistributionHistory} />
       </motion.div>
 
-      {/* ── Filters ── */}
+      {/* Filters */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
         <Card className="border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-2xl">
           <CardHeader className="pb-3 pt-5 px-6">
@@ -250,7 +340,7 @@ export function ModelDistribution() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {modalities.map((m) => (
+                    {availableModalities.map((m: string) => (
                       <SelectItem key={m} value={m}>{m}</SelectItem>
                     ))}
                   </SelectContent>
@@ -278,7 +368,7 @@ export function ModelDistribution() {
                 <Input
                   type="date"
                   value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value)}
+                  onChange={(e: any) => setDateFilter(e.target.value)}
                   className="rounded-xl border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 h-9 text-sm"
                 />
               </div>
@@ -291,7 +381,7 @@ export function ModelDistribution() {
                     type="text"
                     placeholder="Hospital, recipient, model…"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e: any) => setSearchQuery(e.target.value)}
                     className="pl-8 rounded-xl border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 h-9 text-sm"
                   />
                 </div>
@@ -301,7 +391,7 @@ export function ModelDistribution() {
         </Card>
       </motion.div>
 
-      {/* ── Distribution History Table ── */}
+      {/* Distribution History Table */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
         <Card className="border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-2xl overflow-hidden">
           <CardHeader className="pb-3 pt-5 px-6 border-b border-gray-100 dark:border-gray-800">
@@ -318,108 +408,121 @@ export function ModelDistribution() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
-                  {["ID", "Hospital", "Recipient", "Model", "Modality", "Action", "Status", "Date", ""].map((h) => (
-                    <TableHead key={h} className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide py-3 px-4 first:pl-6 last:pr-6">
-                      {h}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRecords.map((record, i) => {
-                  const ac = actionConfig[record.action];
-                  return (
-                    <motion.tr
-                      key={record.id}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors group"
-                    >
-                      <TableCell className="pl-6 py-3">
-                        <span className="font-mono text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-md">
-                          {record.id}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
-                            <Building2 className="w-3 h-3 text-white" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[130px]">
-                            {record.hospital}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="w-6 h-6 border-2 border-blue-200 border-t-blue-500 rounded-full"
+                />
+                <p className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading records…</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
+                    {["ID", "Hospital", "Recipient", "Model", "Modality", "Action", "Status", "Date", ""].map((h) => (
+                      <TableHead key={h} className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide py-3 px-4 first:pl-6 last:pr-6">
+                        {h}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredRecords.map((record: DistributionRecord, i: number) => {
+                    const ac = actionConfig[record.action] ?? actionConfig["deployed"];
+                    return (
+                      <motion.tr
+                        key={record.id}
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.04 }}
+                        className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors group"
+                      >
+                        <TableCell className="pl-6 py-3">
+                          <span className="font-mono text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-md">
+                            {record.id}
                           </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <div>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 font-medium truncate max-w-[140px]">{record.recipient}</p>
-                          <RecipientBadge type={record.recipientType} />
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
-                          {record.model}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-                          {modalityIcon[record.modality]}
-                          {record.modality}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-md border ${ac.bg} ${ac.text} ${ac.border}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${ac.dot} flex-shrink-0`} />
-                          {record.action}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-800">
-                          <CheckCircle2 className="w-3 h-3" /> Success
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-3 px-4">
-                        <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{record.deploymentDate}</span>
-                      </TableCell>
-                      <TableCell className="py-3 pr-6">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedRecord(record)}
-                          className="h-7 px-2.5 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1" />
-                          View
-                        </Button>
-                      </TableCell>
-                    </motion.tr>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center flex-shrink-0">
+                              <Building2 className="w-3 h-3 text-white" />
+                            </div>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[130px]">
+                              {record.hospital}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 font-medium truncate max-w-[140px]">{record.recipient}</p>
+                            <RecipientBadge type={record.recipientType} />
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <span className="font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
+                            {record.model}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                            {modalityIcon[record.modality] ?? <Brain className="w-3.5 h-3.5" />}
+                            {record.modality}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-md border ${ac.bg} ${ac.text} ${ac.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${ac.dot} flex-shrink-0`} />
+                            {record.action}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-800">
+                            <CheckCircle2 className="w-3 h-3" /> Success
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-3 px-4">
+                          <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{record.deploymentDate}</span>
+                        </TableCell>
+                        <TableCell className="py-3 pr-6">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedRecord(record)}
+                            className="h-7 px-2.5 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1" />
+                            View
+                          </Button>
+                        </TableCell>
+                      </motion.tr>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
 
-            {filteredRecords.length === 0 && (
+            {!isLoading && filteredRecords.length === 0 && (
               <div className="text-center py-16">
                 <div className="w-12 h-12 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-3">
                   <Search className="w-5 h-5 text-gray-400" />
                 </div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No records match your filters</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                  {records.length === 0 ? "No distribution records in the database yet." : "No records match your filters."}
+                </p>
               </div>
             )}
           </CardContent>
         </Card>
       </motion.div>
 
-      {/* ── Package Tracker ── */}
+      {/* Package Tracker */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
         <PackageTracker />
       </motion.div>
 
-      {/* ── Detail Modal ── */}
+      {/* Detail Modal */}
       <AnimatePresence>
         {selectedRecord && (
           <motion.div
@@ -436,10 +539,9 @@ export function ModelDistribution() {
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 8 }}
               transition={{ type: "spring", stiffness: 260, damping: 22 }}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e: any) => e.stopPropagation()}
               className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
             >
-              {/* Modal Header */}
               <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 p-5 flex items-start justify-between rounded-t-2xl z-10">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/25">
@@ -459,7 +561,6 @@ export function ModelDistribution() {
               </div>
 
               <div className="p-5 space-y-4">
-                {/* Hospital + Model row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800">
                     <p className="text-xs text-blue-500 dark:text-blue-400 mb-1 font-medium">Hospital</p>
@@ -471,31 +572,31 @@ export function ModelDistribution() {
                   <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
                     <p className="text-xs text-indigo-500 dark:text-indigo-400 mb-1 font-medium">Model</p>
                     <p className="font-mono font-bold text-indigo-900 dark:text-indigo-200 text-sm">{selectedRecord.model}</p>
-                    <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5 flex items-center gap-1">{modalityIcon[selectedRecord.modality]} {selectedRecord.modality}</p>
+                    <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5 flex items-center gap-1">
+                      {modalityIcon[selectedRecord.modality] ?? <Brain className="w-3.5 h-3.5" />} {selectedRecord.modality}
+                    </p>
                   </div>
                 </div>
 
-                {/* Recipient */}
                 <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700/50">
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-medium uppercase tracking-wide">Recipient</p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${selectedRecord.recipientType === "doctor" ? "bg-gradient-to-br from-blue-400 to-blue-600 text-white" : "bg-gradient-to-br from-violet-400 to-purple-600 text-white"}`}>
-                        {selectedRecord.recipient.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                        {selectedRecord.recipient.split(" ").map((n: string) => n[0]).slice(0, 2).join("")}
                       </div>
                       <div>
                         <p className="font-semibold text-sm text-gray-900 dark:text-white">{selectedRecord.recipient}</p>
                         <RecipientBadge type={selectedRecord.recipientType} />
                       </div>
                     </div>
-                    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md border ${actionConfig[selectedRecord.action].bg} ${actionConfig[selectedRecord.action].text} ${actionConfig[selectedRecord.action].border}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${actionConfig[selectedRecord.action].dot}`} />
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md border ${actionConfig[selectedRecord.action]?.bg ?? actionConfig.deployed.bg} ${actionConfig[selectedRecord.action]?.text ?? actionConfig.deployed.text} ${actionConfig[selectedRecord.action]?.border ?? actionConfig.deployed.border}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${actionConfig[selectedRecord.action]?.dot ?? actionConfig.deployed.dot}`} />
                       {selectedRecord.action}
                     </span>
                   </div>
                 </div>
 
-                {/* Timeline */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700/50">
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Deployed</p>
@@ -507,7 +608,6 @@ export function ModelDistribution() {
                   </div>
                 </div>
 
-                {/* Package info */}
                 <div className="p-4 rounded-xl bg-violet-50 dark:bg-violet-900/20 border border-violet-100 dark:border-violet-800">
                   <div className="flex items-center gap-2 mb-3">
                     <Package className="w-4 h-4 text-violet-600 dark:text-violet-400" />
@@ -524,7 +624,6 @@ export function ModelDistribution() {
                   </div>
                 </div>
 
-                {/* Instructions */}
                 <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/15 border border-amber-100 dark:border-amber-800/50">
                   <div className="flex items-center gap-2 mb-2">
                     <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400" />
